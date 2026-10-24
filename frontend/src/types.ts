@@ -30,3 +30,4 @@ export interface PomodoroConfig {
   longBreakMinutes: number;
   longBreakInterval: number;
 }
+

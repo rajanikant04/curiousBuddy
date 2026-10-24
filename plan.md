@@ -1,229 +1,178 @@
-# curiousBuddy — 48-Hour Hackathon Master Plan (`plan.md`)
+# curiousBuddy — Hackathon Master Plan (`plan.md`)
 
 ## 1. Executive Summary & Vision
-**curiousBuddy** is an active-learning Pomodoro study companion that replaces passive re-reading with the **Feynman Technique**. When a study session ends, a curious Socratic AI debriefs you on what you just learned, automatically turns your explanation into a structured study journal entry, tracks your daily focus hours in `localStorage`, and lets you generate instant quizzes to test your retention.
 
-### Core Value Proposition
-- **Pomodoro Focus:** 25-minute work block + 5-minute break counter.
-- **Feynman Debrief Chat:** An AI buddy that asks probing, skeptical follow-up questions instead of blindly praising you.
-- **Voice-First Input:** Uses the browser's native Web Speech API so you can lean back and talk out loud to explain your study topic.
-- **Auto-Journaling & Quiz Generation:** Summarizes your chat transcript into clean Markdown study notes and generates instant flashcard quizzes.
-- **Gamified LocalStorage Stats:** Tracks study minutes, sessions, and daily streaks without requiring a heavy database.
+**curiousBuddy** is an active-learning Pomodoro study companion that replaces passive re-reading with the **Feynman Technique**. When a study session ends, a curious Socratic AI debriefs you via voice on what you just learned, automatically turns your explanation into a structured study journal entry, tracks your daily focus hours in `localStorage`, and lets you generate instant quizzes to test your retention.
 
----
+### Key Architectural Decision: ElevenLabs Conversational AI vs. Ollama
 
-## 2. Target Directory Structure
+#### Do We Need Ollama?
+**No. Ollama is not needed.**
 
-```text
-curious-buddy/
-├── plan.md
-├── backend/
-│   ├── app/
-│   │   ├── main.py             # FastAPI backend for Ollama API proxy & journal extraction
-│   │   └── schemas.py          # Pydantic models for chat requests & journal generation
-│   └── requirements.txt
-└── frontend/
-    ├── package.json
-    ├── index.html
-    └── src/
-        ├── App.tsx             # Main shell with tab navigation (Timer | Debrief | Journal | Stats)
-        ├── types.ts            # TypeScript interfaces for sessions, journal entries, and stats
-        ├── index.css           # Tailwind CSS imports
-        ├── components/
-        │   ├── PomodoroTimer.tsx   # Focus timer with play/pause/reset and audio chime
-        │   ├── AiDebriefChat.tsx   # Feynman chat interface with voice input & Socratic persona
-        │   ├── JournalView.tsx     # Markdown viewer for past study notes + "Quiz Me" modal
-        │   └── StatsDashboard.tsx  # LocalStorage streak counter & focus time charts
-        └── hooks/
-            └── useLocalStorage.ts  # Custom hook for persistent stats and journal entries
-```
+#### Why? Does the ElevenLabs Agent Have World Knowledge?
+**Yes, 100%.**
+Every ElevenLabs Conversational Agent is powered by an integrated frontier Large Language Model (such as Gemini 1.5 Flash, GPT-4o, or Claude 3.5 Sonnet) configured inside ElevenLabs.
+- **Broad World Knowledge**: The agent already possesses encyclopedic knowledge across computer science, engineering, physics, mathematics, history, biology, literature, and system architecture.
+- **Zero Local Hardware Load**: Running Ollama locally requires downloading 2–4 GB model weights, high GPU/RAM consumption, and running an extra background daemon (`ollama serve`).
+- **Sub-Second Voice Latency**: ElevenLabs provides an end-to-end cloud pipeline (Speech-to-Text $\rightarrow$ LLM Reasoning $\rightarrow$ Text-to-Speech) with $\approx 200\text{–}400\text{ms}$ turnaround time. An external localhost Ollama would introduce a 2–4 second lag and require ngrok tunneling to the internet.
 
 ---
 
-## 3. Data Schemas & Models
+## 2. ElevenLabs Agent Creation Strategy (via API)
 
-### 3.1 TypeScript Interfaces (`frontend/src/types.ts`)
-```typescript
-export interface ChatMessage {
-  sender: 'user' | 'ai';
-  text: string;
-}
+Following the official [ElevenLabs Agents Quickstart](https://elevenlabs.io/docs/eleven-agents/quickstart):
 
-export interface JournalEntry {
-  id: string;
-  timestamp: string;
-  topic: string;
-  summaryMarkdown: string;
-  durationMinutes: number;
-  chatTranscript: ChatMessage[];
-  quizQuestions: string[];
-}
+We programmatically provision the Socratic agent using the ElevenLabs Python SDK via `backend/app/services/create_agent.py`:
 
-export interface UserStats {
-  totalMinutesStudied: number;
-  currentStreakDays: number;
-  lastActiveDate: string;
-  sessionsCompleted: number;
-}
-```
-
-### 3.2 Pydantic Schemas (`backend/schemas.py`)
 ```python
-from pydantic import BaseModel, Field
-from typing import List
+from app.config import settings
+from elevenlabs.client import ElevenLabs
 
-class ChatMessage(BaseModel):
-    sender: str
-    text: str
+# Load API key and voice preferences directly from app.config.settings
+client = ElevenLabs(api_key=settings.ELEVENLABS_API_KEY)
 
-class ChatRequest(BaseModel):
-    messages: List[ChatMessage]
-    topic: str = ""
+feynman_prompt = """
+# Personality
+Your name is Cube. You are a curious study buddy, an enthusiastic, highly curious, and slightly skeptical study companion.
 
-class DebriefRequest(BaseModel):
-    transcript: List[ChatMessage]
-    topic: str
-    duration_minutes: int
+# Goal
+Practice the Feynman Technique with the student.
+When they explain what they just studied:
+1. Identify any jargon or buzzwords they used and ask them to explain what that actually means in plain, everyday language.
+2. Ask probing 'why' and 'how' follow-up questions to test deep mechanical understanding.
+3. Challenge them with simple real-world thought experiments and edge cases.
+4. Keep your responses conversational, friendly, and concise (2-3 sentences max).
 
-class JournalGenerationResponse(BaseModel):
-    topic: str
-    summary_markdown: str = Field(
-        description="Clean, structured Markdown notes explaining the concept clearly using the Feynman technique."
-    )
-    quiz_questions: List[str] = Field(
-        description="3 rapid-fire test questions based on the session explanation."
-    )
-```
-
----
-
-## 4. Step-by-Step Implementation Checklist
-
-### Phase 1: Environment Setup & Pomodoro Timer (Hours 1–3)
-- [ ] **1.1 Backend Setup:**
-  - Create virtual environment and install dependencies:
-    ```bash
-    cd backend
-    python -m venv venv
-    source venv/bin/activate  # On Windows: venv\Scripts\activate
-    pip install fastapi uvicorn ollama pydantic python-dotenv elevenlabs
-    ```
-- [ ] **1.2 Frontend Setup:**
-  - Create Vite React TypeScript application:
-    ```bash
-    npm create vite@latest frontend -- --template react-ts
-    cd frontend
-    npm install
-    npm install lucide-react tailwindcss postcss autoprefixer
-    npx tailwindcss init -p
-    ```
-- [ ] **1.3 Build `PomodoroTimer.tsx`:**
-  - Implement 25:00 focus timer and 05:00 break timer logic.
-  - Add states: `IDLE`, `WORKING`, `BREAK`, `PAUSED`.
-  - When timer reaches 00:00, play an audio chime and automatically transition the user to the **Curious AI Debrief** tab.
-
----
-
-### Phase 2: Socratic AI Debrief & Voice Input (Hours 4–8)
-- [ ] **2.1 Build `AiDebriefChat.tsx`:**
-  - Create message bubble interface.
-  - Implement the **Socratic Persona Prompt** in the FastAPI backend chat endpoint (`POST /api/chat`) calling the local **Ollama** model (e.g. `llama3.2`):
-    ```text
-    You are curiousBuddy, an enthusiastic, highly curious, and slightly skeptical study companion. 
-    Your goal is to practice the Feynman Technique with the user. 
-    When they tell you what they studied, ask probing, intelligent follow-up questions to test their true understanding. Avoid generic praise; push them to explain the 'why' and 'how'. Keep answers concise.
-    ```
-- [ ] **2.2 Implement Web Speech API Voice Input:**
-  - Add a microphone button using `window.SpeechRecognition || window.webkitSpeechRecognition`.
-  - Stream voice transcription directly into the chat input box.
-
----
-
-### Phase 3: Automated Journaling & Quiz Generator (Hours 9–14)
-- [ ] **3.1 Implement Journal Endpoint (`POST /api/generate-journal` in `backend/app/main.py`):**
-  - Accept chat transcript and topic.
-  - Query Ollama with structured output schema `format=JournalGenerationResponse.model_json_schema()` to return Markdown notes and 3 quiz questions.
-- [ ] **3.2 Build `JournalView.tsx`:**
-  - Save generated journal items to `localStorage`.
-  - Display past entries in collapsible cards with a **"Test Me on This"** modal for quiz questions.
-
----
-
-### Phase 4: Analytics, Streaks & UI Polish (Hours 15–24)
-- [ ] **4.1 Build `StatsDashboard.tsx` & LocalStorage Custom Hook:**
-  - Track total study minutes, completed sessions, and daily streaks.
-  - Render progress metrics cleanly at the top of the app dashboard.
-- [ ] **4.2 Styling & Polish:**
-  - Apply dark mode slate styling with glowing accent indicators.
-  - Ensure seamless navigation across Timer, Debrief, Journal, and Stats.
-
----
-
-## 5. Starter Code Templates
-
-### 5.1 Backend FastAPI Server (`backend/app/main.py`)
-```python
-import os
-import ollama
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-from dotenv import load_dotenv
-from app.schemas import ChatRequest, DebriefRequest, JournalGenerationResponse
-
-load_dotenv()
-
-app = FastAPI(title="curiousBuddy API")
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2")
-client = ollama.AsyncClient(host=OLLAMA_HOST)
-
-FEYNMAN_SYSTEM_PROMPT = """
-You are curiousBuddy, an enthusiastic, highly curious, and slightly skeptical study companion. 
-Your goal is to practice the Feynman Technique with the user. 
-When they tell you what they studied, ask probing, intelligent follow-up questions to test their true understanding. 
-Avoid generic praise; push them to explain the 'why' and 'how' simply. Keep answers concise.
+# Tone
+Speak in a friendly, conversational manner
 """
 
-@app.post("/api/chat")
-async def chat_endpoint(data: ChatRequest):
-    messages = [{"role": "system", "content": FEYNMAN_SYSTEM_PROMPT}] + [
-        {"role": "user" if m.sender == "user" else "assistant", "content": m.text}
-        for m in data.messages
-    ]
-    response = await client.chat(model=OLLAMA_MODEL, messages=messages)
-    return {"message": response.message.content}
+response = client.conversational_ai.agents.create(
+    name="curiousBuddy Feynman Debriefer (Cube)",
+    tags=["curiousBuddy", "feynman", "education"],
+    conversation_config={
+        "tts": {
+            "voice_id": "cgSgspJ2msm6clMCkdW9",  # Jessica (Playful, Cute, Youthful)
+            "model_id": "eleven_flash_v2"
+        },
+        "agent": {
+            "first_message": (
+                "Hey there! Great focus session. I'm Cube, your curious study buddy. "
+                "What's the core concept you just studied? Explain it to me as if I'm 12 years old!"
+            ),
+            "prompt": {
+                "prompt": feynman_prompt,
+            }
+        }
+    }
+)
 
-@app.post("/api/generate-journal", response_model=JournalGenerationResponse)
-async def generate_journal(data: DebriefRequest):
-    conversation_text = "\n".join([f"{m.sender}: {m.text}" for m in data.transcript])
-    prompt = f"""
-    Analyze this Feynman study debrief conversation about '{data.topic}':
-    {conversation_text}
-    
-    Extract a structured Markdown study journal entry summarizing what was learned using the Feynman technique, and provide 3 quiz questions to test retention.
-    """
-    response = await client.chat(
-        model=OLLAMA_MODEL,
-        messages=[{"role": "user", "content": prompt}],
-        format=JournalGenerationResponse.model_json_schema(),
-    )
-    return JournalGenerationResponse.model_validate_json(response.message.content)
+agent_id = response.agent_id
+# Use agent_id in ELEVENLABS_AGENT_ID and frontend <elevenlabs-convai> widget
 ```
 
-### 5.2 Backend Requirements (`backend/requirements.txt`)
+---
+
+## 3. System Architecture & Component Mapping
+
 ```text
-fastapi
-uvicorn
-python-dotenv
-pydantic
-ollama
-elevenlabs
+curiousBuddy/
+├── plan.md                                # Master plan & architectural roadmap
+├── backend/
+│   ├── .env                              # ELEVENLABS_API_KEY, ELEVENLABS_AGENT_ID, PORT
+│   ├── requirements.txt                  # fastapi, uvicorn, python-dotenv, pydantic, elevenlabs
+│   ├── tests/
+│   │   └── test_elevenlabs.py            # Automated tests for API connection and agent creation
+│   └── app/
+│       ├── config.py                     # Environment loader & Pydantic settings singleton
+│       ├── schemas.py                    # API request & response schemas
+│       ├── main.py                       # FastAPI entrypoint
+│       └── services/
+│           └── create_agent.py           # Automated script & service to provision ElevenLabs agent (Cube)
+└── frontend/
+    ├── index.html                        # Web embed script tag for ElevenLabs convai widget
+    ├── package.json                      # React 19, Vite, TypeScript
+    └── src/
+        ├── App.tsx                       # Main shell (Focus Timer | AI Debrief | Journal | Stats)
+        ├── types.ts                      # Data contracts (ChatMessage, JournalEntry, UserStats)
+        ├── index.css                     # Minimal Swiss brutalism (border-radius: 0) & responsive design
+        ├── utils/
+        │   └── sound.ts                  # Web Audio API chime & click synthesizer
+        └── components/
+            ├── FocusTimer.tsx            # Host component for focus sessions
+            ├── timer/
+            │   ├── Focus.tsx             # 25m focus countdown & topic selector
+            │   ├── ShortBreak.tsx        # 5m recharge timer
+            │   ├── LongBreak.tsx         # 15m deep rest timer
+            │   └── ClockDial.tsx         # Minimal circular ring dial (responsive & live)
+            ├── AiDebrief.tsx             # ElevenLabs Conversational Voice Agent (Cube) + Socratic debrief
+            ├── Journal.tsx               # Markdown notes archive & interactive "Quiz Me" modal
+            └── Stats.tsx                 # Streak counter, minutes studied, completed blocks
 ```
+
+---
+
+## 4. Communication & Data Flow
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User as Student
+    participant Timer as FocusTimer (UI)
+    participant Debrief as AiDebrief (UI)
+    participant Eleven as ElevenLabs Agent Cloud (Cube)
+    participant Journal as Journal (LocalStorage)
+
+    Note over User,Timer: 25-minute Pomodoro Block
+    User->>Timer: Starts Focus Session
+    Timer->>Timer: Counts down to 00:00
+    Timer-->>User: Timer completes (alert/chime)
+    User->>Debrief: Transitions to AI Debrief tab (if user wishes)
+
+    Note over User,Eleven: Voice Feynman Debrief (Direct ConvAI Embed)
+    Debrief->>Eleven: Connects live via <elevenlabs-convai> widget (using agent_id)
+    Eleven-->>User: Speaks first greeting: "Hey there! I'm Cube, your curious study buddy..."
+    User->>Eleven: Explains concept out loud
+    Eleven-->>User: Socratic follow-up: "Why does it work that way? What's the tradeoff?"
+    User->>Eleven: Continues conversational explanation
+
+    Note over User,Journal: Auto-Journaling & Quiz Generation
+    User->>Debrief: Clicks "Finish Debrief & Save Notes"
+    Debrief->>Journal: Formats & saves structured entry to curiousbuddy_journals (LocalStorage)
+    Debrief->>Journal: Transitions to Journal Tab
+    User->>Journal: Views study notes and clicks "Quiz Me"
+```
+
+---
+
+## 5. Step-by-Step Implementation Roadmap
+
+### Phase 1: Agent Creation Service via API
+- [x] Research official ElevenLabs Quickstart API.
+- [x] Implement `backend/app/services/create_agent.py` using `client.conversational_ai.agents.create`:
+  - Name: `curiousBuddy Feynman Debriefer (Cube)`
+  - Socratic Feynman System Prompt with `# Personality` (Cube), `# Goal`, and `# Tone`
+  - First message: greeting student as Cube and asking for a 12-year-old explanation
+  - Selected Voice (`Rachel` or `Brian`)
+  - Standalone runnable script and callable function
+  - Output generated `agent_id` for `ELEVENLABS_AGENT_ID` and frontend widget embedding.
+- [x] Run `create_agent.py` to provision the agent in ElevenLabs and verify agent ID:
+  - **Created Agent ID**: `agent_8001m5pswf1decw9rddgvezyysgz`
+  - Saved to `backend/.env` as `ELEVENLABS_AGENT_ID`.
+
+### Phase 2: Frontend Voice Agent Embed & Verification
+- [x] Add `<script src="https://unpkg.com/@elevenlabs/convai-widget-embed">` in `frontend/index.html`.
+- [x] Register custom element `<elevenlabs-convai>` in TypeScript definitions.
+- [x] Embed `<elevenlabs-convai agent-id={agentId}>` into `frontend/src/components/AiDebrief.tsx`.
+- [x] Socratic text debrief + speech recognition fallback.
+- [x] Connect "Save to Journal" action to generate study notes and redirect to Journal.
+
+### Phase 3: End-to-End Verification
+- [x] Run `create_agent.py` to obtain official `agent_id` (`agent_8001m5pswf1decw9rddgvezyysgz`).
+- [x] Verify frontend renders the ElevenLabs widget cleanly with zero console errors.
+- [x] Test the full loop: Focus Timer $\rightarrow$ User transitions to Debrief $\rightarrow$ Spoken voice dialogue with Cube $\rightarrow$ Save notes $\rightarrow$ Interactive quiz in Journal.
+
+### Phase 4: Knowledge Graph & Visual Learning Web (Upcoming)
+- [ ] Implement an interactive 2D force-directed knowledge graph in `Journal.tsx` (similar to Obsidian's graph view).
+- [ ] Extract semantic keywords and prerequisite links between journal entries.
+- [ ] Enable interactive node inspection: click any node to pull up the associated Feynman study notes and quiz questions.
