@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <defs>
+    <linearGradient id="cubeGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0055ff"/>
+      <stop offset="100%" stop-color="#38bdf8"/>
+    </linearGradient>
+    <linearGradient id="glowGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8" stop-opacity="0.8"/>
+      <stop offset="100%" stop-color="#0055ff" stop-opacity="0.2"/>
+    </linearGradient>
+  </defs>
+  <!-- Background Rounded Shield -->
+  <rect x="2" y="2" width="60" height="60" rx="14" fill="#08090c" stroke="#1d283a" stroke-width="2"/>
+  <!-- Isometric Cube Representation -->
+  <!-- Top Face -->
+  <polygon points="32,14 48,23 32,32 16,23" fill="url(#cubeGrad)"/>
+  <!-- Left Face -->
+  <polygon points="16,23 32,32 32,50 16,41" fill="#0044cc"/>
+  <!-- Right Face -->
+  <polygon points="32,32 48,23 48,41 32,50" fill="#0284c7"/>
+  <!-- Inner Node Dot -->
+  <circle cx="32" cy="32" r="3" fill="#ffffff"/>
+</svg>
