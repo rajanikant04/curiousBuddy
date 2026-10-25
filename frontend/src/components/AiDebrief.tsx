@@ -20,8 +20,7 @@ export const AiDebrief: FC<AiDebriefProps> = ({
   onBackToTimer,
 }) => {
   const [debriefMode, setDebriefMode] = useState<'voice' | 'text'>('voice');
-  const [agentId, setAgentId] = useState<string>(DEFAULT_AGENT_ID);
-  const [showAgentSettings, setShowAgentSettings] = useState<boolean>(false);
+  const [agentId] = useState<string>(DEFAULT_AGENT_ID);
 
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
@@ -356,21 +355,6 @@ export const AiDebrief: FC<AiDebriefProps> = ({
             💬 Text Chat & Notes ({messages.length})
           </button>
         </div>
-
-        <button
-          type="button"
-          onClick={() => setShowAgentSettings((prev) => !prev)}
-          style={{
-            background: 'transparent',
-            border: 'none',
-            color: 'var(--text-muted)',
-            fontSize: '11px',
-            fontFamily: 'var(--font-mono)',
-            cursor: 'pointer',
-            textDecoration: 'underline',
-          }}
-        >
-        </button>
       </div>
 
       {/* Mode 1: Centered Custom ElevenLabs Voice Agent Stage */}
